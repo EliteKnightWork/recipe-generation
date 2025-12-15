@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  t5-recipe:
+    build: .
+    container_name: t5-recipe-generation
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+    restart: unless-stopped

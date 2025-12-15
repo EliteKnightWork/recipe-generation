@@ -1,1 +1,9 @@
 .venv
+
+# Model files (large)
+*.bin
+*.pt
+*.pth
+*.onnx
+*.safetensors
+models/
