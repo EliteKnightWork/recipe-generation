@@ -1,13 +1,13 @@
 #!/bin/bash
 set -e
 
-MODEL_PATH="/app/models/t5-recipe-generation"
+MODEL_PATH="/app/models/recipenlg"
 
 # Check if model exists locally
 if [ -d "$MODEL_PATH" ] && [ "$(ls -A $MODEL_PATH 2>/dev/null)" ]; then
-    echo "Model found at $MODEL_PATH, skipping download..."
+    echo "Recipe model found at $MODEL_PATH, skipping download..."
 else
-    echo "Model not found. Downloading..."
+    echo "Recipe model not found. Downloading mbien/recipenlg..."
     python download_model.py
 fi
 

@@ -1,13 +1,13 @@
 """
-Script to download T5 Recipe Generation model for offline use.
+Script to download Recipe Generation model for offline use.
 Run this script once to download all model files.
 """
 
 import os
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
-MODEL_NAME = "flax-community/t5-recipe-generation"
-SAVE_PATH = "./models/t5-recipe-generation"
+MODEL_NAME = "mbien/recipenlg"
+SAVE_PATH = "./models/recipenlg"
 
 def download_model():
     print(f"Downloading model: {MODEL_NAME}")
@@ -24,7 +24,7 @@ def download_model():
 
     # Download model
     print("\n[2/2] Downloading model weights...")
-    model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
+    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
     model.save_pretrained(SAVE_PATH)
     print("Model saved successfully!")
 
