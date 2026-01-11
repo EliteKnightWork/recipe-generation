@@ -11,5 +11,5 @@ else
     python download_model.py
 fi
 
-echo "Starting FastAPI service..."
-exec uvicorn main:app --host 0.0.0.0 --port 8000
+echo "Starting FastAPI service with hot reload..."
+exec uvicorn main:app --host 0.0.0.0 --port 8000 --reload
