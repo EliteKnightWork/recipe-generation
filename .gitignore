@@ -1,5 +1,9 @@
 .venv
 
+# Python bytecode
+*.pyc
+__pycache__/
+
 # Model files (large)
 *.bin
 *.pt

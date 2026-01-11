@@ -6,7 +6,13 @@ from typing import List
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import re
 
-app = FastAPI()
+from accuracy import AccuracyPipeline, AccuracyConfig
+
+app = FastAPI(
+    title="Recipe Generation API",
+    description="Generate high-quality recipes with accuracy improvements",
+    version="2.0.0"
+)
 
 # Configuration
 LOCAL_MODEL_PATH = "./models/recipenlg"
@@ -54,103 +60,61 @@ SPECIAL_TOKENS = {
     "next_instr": "<NEXT_INSTR>",
 }
 
-# Generation parameters (tuned for best quality)
-generation_kwargs = {
-    "max_length": 512,
-    "min_length": 64,
-    "no_repeat_ngram_size": 3,
-    "do_sample": True,
-    "top_k": 50,
-    "top_p": 0.9,
-    "temperature": 0.8,
-    "num_return_sequences": 2,
-    "pad_token_id": tokenizer.pad_token_id,
-    "eos_token_id": tokenizer.encode(SPECIAL_TOKENS["recipe_end"])[0] if SPECIAL_TOKENS["recipe_end"] in tokenizer.get_vocab() else tokenizer.eos_token_id,
-}
+# Accuracy configuration
+ACCURACY_CONFIG = AccuracyConfig(
+    enable_validation=True,
+    enable_scoring=True,
+    enable_beam_search=True,
+    enable_annealing=True,
+    enable_constraints=True,
+    enable_quality_checks=True,
+    num_candidates=10,
+    return_top_n=3,
+    min_ingredient_coverage=0.3,
+    min_directions=2,
+    min_quality_score=0.3,
+    num_beams=10,
+    num_beam_groups=5,
+    diversity_penalty=1.5,
+    initial_temperature=0.7,
+    max_temperature=1.2,
+    temperature_step=0.15,
+    quality_threshold=0.6,
+)
 
+# Initialize accuracy pipeline with special tokens for recipenlg
+accuracy_pipeline = AccuracyPipeline(
+    model=model,
+    tokenizer=tokenizer,
+    device=device,
+    config=ACCURACY_CONFIG,
+    special_tokens=SPECIAL_TOKENS
+)
 
-def format_input(ingredients: List[str]) -> str:
-    """Format ingredients into model input format."""
-    ingredients_str = ", ".join(ingredients)
-    return f"{SPECIAL_TOKENS['input_start']} {ingredients_str} {SPECIAL_TOKENS['input_end']} {SPECIAL_TOKENS['ingr_start']}"
+print("Accuracy pipeline initialized!")
+print(f"  - Beam search: {ACCURACY_CONFIG.enable_beam_search}")
+print(f"  - Candidates: {ACCURACY_CONFIG.num_candidates}")
+print(f"  - Return top: {ACCURACY_CONFIG.return_top_n}")
 
-
-def generation_function(ingredients: List[str]):
-    """Generate recipes from ingredients."""
-    prompt = format_input(ingredients)
-
-    inputs = tokenizer(
-        prompt,
-        return_tensors="pt",
-        truncation=True,
-        max_length=256,
-    ).to(device)
-
-    output_ids = model.generate(
-        **inputs,
-        **generation_kwargs
-    )
-
-    generated_texts = tokenizer.batch_decode(output_ids, skip_special_tokens=False)
-    return generated_texts
-
-def parse_generated_recipes(recipe_list):
-    """Parse generated recipes from model output."""
-    parsed_recipes = []
-
-    for recipe_text in recipe_list:
-        recipe_obj = {}
-
-        # Extract title
-        title_match = re.search(
-            rf"{re.escape(SPECIAL_TOKENS['title_start'])}(.+?){re.escape(SPECIAL_TOKENS['title_end'])}",
-            recipe_text,
-            re.DOTALL
-        )
-        if title_match:
-            recipe_obj["title"] = title_match.group(1).strip()
-        else:
-            recipe_obj["title"] = "Untitled Recipe"
-
-        # Extract ingredients
-        ingr_match = re.search(
-            rf"{re.escape(SPECIAL_TOKENS['ingr_start'])}(.+?){re.escape(SPECIAL_TOKENS['ingr_end'])}",
-            recipe_text,
-            re.DOTALL
-        )
-        if ingr_match:
-            ingr_text = ingr_match.group(1).strip()
-            ingredients = re.split(rf"{re.escape(SPECIAL_TOKENS['next_ingr'])}", ingr_text)
-            recipe_obj["ingredients"] = [ing.strip() for ing in ingredients if ing.strip()]
-        else:
-            recipe_obj["ingredients"] = []
-
-        # Extract instructions/directions
-        instr_match = re.search(
-            rf"{re.escape(SPECIAL_TOKENS['instr_start'])}(.+?)(?:{re.escape(SPECIAL_TOKENS['instr_end'])}|{re.escape(SPECIAL_TOKENS['recipe_end'])}|$)",
-            recipe_text,
-            re.DOTALL
-        )
-        if instr_match:
-            instr_text = instr_match.group(1).strip()
-            directions = re.split(rf"{re.escape(SPECIAL_TOKENS['next_instr'])}", instr_text)
-            recipe_obj["directions"] = [d.strip() for d in directions if d.strip()]
-        else:
-            recipe_obj["directions"] = []
-
-        # Only add if we have some content
-        if recipe_obj["ingredients"] or recipe_obj["directions"]:
-            parsed_recipes.append(recipe_obj)
-
-    return parsed_recipes
 
 class Recipe(BaseModel):
     title: str
     ingredients: List[str]
     directions: List[str]
 
+
 @app.post("/generate_recipes", response_model=List[Recipe])
 def generate_recipes(items: List[str]):
-    generated = generation_function(items)
-    parsed_recipes = parse_generated_recipes(generated)
-    return parsed_recipes
+    """
+    Generate high-quality recipes for given ingredients.
+
+    Uses accuracy improvements:
+    - Beam search with diversity
+    - Temperature annealing
+    - Ingredient validation
+    - Recipe scoring and re-ranking
+    - Constrained generation
+    - Quality checks
+    """
+    recipes = accuracy_pipeline.generate(items)
+    return recipes
