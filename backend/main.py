@@ -1,13 +1,33 @@
+"""
+Recipe Generation API
+FastAPI backend with optimized T5 model inference.
+"""
+
 import os
 import torch
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-import re
 
-app = FastAPI()
+# Import utility modules
+from utils.config import GenerationConfig, GenerationStrategy
+from utils.preprocessing import InputPreprocessor
+from utils.postprocessing import OutputParser
+from utils.scoring import RecipeScorer
+from utils.generation import RecipeGenerator, get_preset, GENERATION_PRESETS
+
+
+# ============================================================================
+# App Configuration
+# ============================================================================
+
+app = FastAPI(
+    title="Recipe Generation API",
+    description="Generate recipes from ingredients using T5 model",
+    version="2.0.0"
+)
 
 # CORS middleware for frontend
 app.add_middleware(
@@ -18,7 +38,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configuration
+
+# ============================================================================
+# Model Configuration
+# ============================================================================
+
 LOCAL_MODEL_PATH = "./models/t5-recipe-generation"
 ONLINE_MODEL_NAME = "flax-community/t5-recipe-generation"
 
@@ -44,96 +68,159 @@ model = AutoModelForSeq2SeqLM.from_pretrained(
 
 print(f"Model loaded successfully!")
 
-prefix = "items: "
-generation_kwargs = {
-    "max_length": 512,
-    "min_length": 64,
-    "no_repeat_ngram_size": 3,
-    "do_sample": True,
-    "top_k": 60,
-    "top_p": 0.95,
-    "num_return_sequences": 2
-}
+# Initialize the recipe generator with default config
+generator = RecipeGenerator(
+    model=model,
+    tokenizer=tokenizer,
+    device=device,
+    generation_config=get_preset("default"),
+    preprocessor=InputPreprocessor(),
+    parser=OutputParser(),
+    scorer=RecipeScorer()
+)
 
-special_tokens = tokenizer.all_special_tokens
-tokens_map = {
-    "<sep>": "--",
-    "<section>": "\n"
-}
 
-def skip_special_tokens(text, special_tokens):
-    for token in special_tokens:
-        text = text.replace(token, "")
+# ============================================================================
+# Request/Response Models
+# ============================================================================
 
-    return text
+class RecipeScore(BaseModel):
+    """Score breakdown for a recipe."""
+    overall_score: float
+    completeness_score: float
+    ingredient_coverage_score: float
+    coherence_score: float
+    length_score: float
+    details: Dict[str, Any] = {}
 
-def target_postprocessing(texts, special_tokens):
-    if not isinstance(texts, list):
-        texts = [texts]
-
-    new_texts = []
-    for text in texts:
-        text = skip_special_tokens(text, special_tokens)
-
-        for k, v in tokens_map.items():
-            text = text.replace(k, v)
-
-        new_texts.append(text)
-    return new_texts
-
-def generation_function(texts):
-    _inputs = texts if isinstance(texts, list) else [texts]
-    inputs = [prefix + inp for inp in _inputs]
-    inputs = tokenizer(
-        inputs,
-        max_length=256,
-        padding="max_length",
-        truncation=True,
-        return_tensors="pt",
-    )
-
-    # Move tensors to device (GPU if available)
-    input_ids = inputs.input_ids.to(device)
-    attention_mask = inputs.attention_mask.to(device)
-
-    output_ids = model.generate(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        **generation_kwargs
-    )
-    generated_recipe = target_postprocessing(
-        tokenizer.batch_decode(output_ids, skip_special_tokens=False),
-        special_tokens
-    )
-    return generated_recipe
-
-def parse_generated_recipes(recipe_list):
-    parsed_recipes = []
-    for recipe in recipe_list:
-        recipe_obj = {}
-        title_match = re.search(r" title: (.+?)\n", recipe)
-        ingredients_match = re.search(r" ingredients: (.+?)\n directions:", recipe)
-        directions_match = re.search(r" directions: (.+)", recipe)
-
-        if title_match:
-            recipe_obj["title"] = title_match.group(1).strip()
-        if ingredients_match:
-            ingredients = ingredients_match.group(1).strip().split('--')
-            recipe_obj["ingredients"] = [ingredient.strip() for ingredient in ingredients]
-        if directions_match:
-            directions = directions_match.group(1).strip().split('--')
-            recipe_obj["directions"] = [direction.strip() for direction in directions]
-
-        parsed_recipes.append(recipe_obj)
-    return parsed_recipes
 
 class Recipe(BaseModel):
+    """Recipe with optional score."""
     title: str
     ingredients: List[str]
     directions: List[str]
+    score: Optional[RecipeScore] = None
 
-@app.post("/generate_recipes", response_model=List[Recipe])
+
+class GenerationResponse(BaseModel):
+    """Response model for recipe generation."""
+    success: bool
+    recipes: List[Recipe]
+    processed_ingredients: List[str]
+    original_ingredients: List[str]
+    warnings: Optional[List[str]] = None
+    preprocessing_details: Optional[List[Dict[str, Any]]] = None
+
+
+# ============================================================================
+# API Endpoints
+# ============================================================================
+
+@app.get("/")
+def root():
+    """Health check endpoint."""
+    return {
+        "status": "running",
+        "model": MODEL_PATH,
+        "device": str(device),
+        "version": "2.0.0"
+    }
+
+
+@app.post("/generate_recipes", response_model=GenerationResponse)
 def generate_recipes(items: List[str]):
-    generated = generation_function(items)
-    parsed_recipes = parse_generated_recipes(generated)
-    return parsed_recipes
+    """
+    Generate recipes from ingredients with full optimization pipeline.
+
+    Pipeline:
+    1. Preprocess ingredients (normalize, validate, deduplicate)
+    2. Generate recipes with optimized parameters
+    3. Parse and validate output
+    4. Score recipes for quality
+    5. Return best recipes with scores
+
+    Args:
+        items: List of ingredient strings
+
+    Returns:
+        GenerationResponse with recipes, scores, and metadata
+    """
+    if not items:
+        raise HTTPException(status_code=400, detail="No ingredients provided")
+
+    # Step 1: Preprocess ingredients
+    processed_ingredients, validation_results = generator.preprocessor.preprocess(items)
+
+    if not processed_ingredients:
+        raise HTTPException(
+            status_code=400,
+            detail="No valid ingredients after preprocessing"
+        )
+
+    # Collect warnings and preprocessing details
+    warnings = []
+    preprocessing_details = []
+    for v in validation_results:
+        detail = {
+            "original": v.original,
+            "normalized": v.normalized,
+            "is_valid": v.is_valid,
+            "category": v.category,
+        }
+        if v.warnings:
+            detail["warnings"] = v.warnings
+            warnings.extend(v.warnings)
+        preprocessing_details.append(detail)
+
+    # Step 2-4: Generate, parse, and score recipes
+    result = generator.generate(
+        ingredients=processed_ingredients,
+        config=generator.generation_config,
+        return_scores=True,
+        select_best=True,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Generation failed")
+        )
+
+    # Step 5: Build response with recipes and scores
+    recipes_with_scores = []
+    recipes_data = result.get("recipes", [])
+    scores_data = result.get("scores", [])
+
+    for i, recipe_dict in enumerate(recipes_data):
+        recipe = Recipe(
+            title=recipe_dict.get("title", ""),
+            ingredients=recipe_dict.get("ingredients", []),
+            directions=recipe_dict.get("directions", []),
+        )
+
+        # Attach score if available
+        if i < len(scores_data):
+            score_dict = scores_data[i]
+            recipe.score = RecipeScore(
+                overall_score=score_dict.get("overall_score", 0),
+                completeness_score=score_dict.get("completeness_score", 0),
+                ingredient_coverage_score=score_dict.get("ingredient_coverage_score", 0),
+                coherence_score=score_dict.get("coherence_score", 0),
+                length_score=score_dict.get("length_score", 0),
+                details=score_dict.get("details", {}),
+            )
+
+        recipes_with_scores.append(recipe)
+
+    # Add any generation warnings
+    if result.get("warnings"):
+        warnings.extend(result["warnings"])
+
+    return GenerationResponse(
+        success=True,
+        recipes=recipes_with_scores,
+        processed_ingredients=processed_ingredients,
+        original_ingredients=items,
+        warnings=warnings if warnings else None,
+        preprocessing_details=preprocessing_details,
+    )
