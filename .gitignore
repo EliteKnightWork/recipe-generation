@@ -1,4 +1,5 @@
 .venv
+venv/
 
 # Python bytecode
 *.pyc
@@ -15,4 +16,8 @@ models/
 # Node.js
 node_modules/
 .next/
+
+# Environment files
+.env
 .env*.local
+!.env.example
