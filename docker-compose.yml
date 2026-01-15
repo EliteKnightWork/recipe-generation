@@ -5,25 +5,33 @@ services:
     build: ./backend
     container_name: recipe-backend
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./models:/app/models
+      - shared-venv:/app/venv
     restart: unless-stopped
     networks:
       - recipe-network
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=${BACKEND_PORT:-8000}
 
   frontend:
     build: ./frontend
     container_name: recipe-frontend
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=${API_URL:-http://localhost:8000}
     depends_on:
       - backend
     restart: unless-stopped
     networks:
       - recipe-network
+
+volumes:
+  shared-venv:
+    driver: local
 
 networks:
   recipe-network:

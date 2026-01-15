@@ -1,23 +1,34 @@
 # Use an official Python runtime as a parent image
-FROM python:3.10
+FROM python:3.10-slim
 
 # Set the working directory
 WORKDIR /app
 
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set venv as default Python path
+ENV PATH="/app/venv/bin:$PATH"
+ENV VIRTUAL_ENV="/app/venv"
+
 # Copy requirements.txt into the container
 COPY requirements.txt ./
 
-# Install any needed packages specified in requirements.txt
-RUN pip install --trusted-host pypi.python.org -r requirements.txt
+# Copy the application code into the container
+COPY main.py ./
+COPY download_model.py ./
+COPY entrypoint.sh ./
 
-# Copy the rest of the application code into the container
-COPY . .
+# Copy utils module
+COPY utils/ ./utils/
 
 # Make entrypoint executable
 RUN chmod +x entrypoint.sh
 
-# Create models directory
-RUN mkdir -p /app/models
+# Create directories
+RUN mkdir -p /app/models /app/venv
 
 # Make port 8000 available to the world outside this container
 EXPOSE 8000
