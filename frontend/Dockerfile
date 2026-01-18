@@ -3,6 +3,10 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Accept build argument
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 # Copy package files
 COPY package.json ./
 
@@ -12,7 +16,7 @@ RUN npm install
 # Copy source code
 COPY . .
 
-# Build the application
+# Build the application with env var baked in
 RUN npm run build
 
 # Production stage
