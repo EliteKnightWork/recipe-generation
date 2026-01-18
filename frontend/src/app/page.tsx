@@ -2,10 +2,27 @@
 
 import { useState, FormEvent, KeyboardEvent } from 'react';
 
+interface RecipeScore {
+  overall_score: number;
+  completeness_score: number;
+  ingredient_coverage_score: number;
+  coherence_score: number;
+  length_score: number;
+}
+
 interface Recipe {
   title: string;
   ingredients: string[];
   directions: string[];
+  score?: RecipeScore;
+}
+
+interface GenerationResponse {
+  success: boolean;
+  recipes: Recipe[];
+  processed_ingredients: string[];
+  original_ingredients: string[];
+  warnings?: string[];
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -60,8 +77,13 @@ export default function Home() {
         throw new Error(`Failed to generate recipes: ${response.statusText}`);
       }
 
-      const data: Recipe[] = await response.json();
-      setRecipes(data);
+      const data: GenerationResponse = await response.json();
+
+      if (data.success && data.recipes) {
+        setRecipes(data.recipes);
+      } else {
+        throw new Error('No recipes generated');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
