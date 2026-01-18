@@ -15,6 +15,14 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PORT=${BACKEND_PORT:-8000}
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   frontend:
     build: ./frontend
