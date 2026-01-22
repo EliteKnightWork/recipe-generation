@@ -17,6 +17,7 @@ from utils.preprocessing import InputPreprocessor
 from utils.postprocessing import OutputParser
 from utils.scoring import RecipeScorer
 from utils.generation import RecipeGenerator, get_preset, GENERATION_PRESETS
+from utils.language_enhancer import LanguageEnhancer
 
 
 # ============================================================================
@@ -79,6 +80,20 @@ generator = RecipeGenerator(
     scorer=RecipeScorer()
 )
 
+# ============================================================================
+# Language Enhancement Configuration
+# ============================================================================
+
+USE_LANGUAGE_ENHANCEMENT = os.environ.get("USE_LANGUAGE_ENHANCEMENT", "false").lower() == "true"
+enhancer = None
+
+if USE_LANGUAGE_ENHANCEMENT:
+    print("Language enhancement enabled, initializing Llama model...")
+    enhancer = LanguageEnhancer(device=device)
+    # Lazy load - model loads on first request
+else:
+    print("Language enhancement disabled (set USE_LANGUAGE_ENHANCEMENT=true to enable)")
+
 
 # ============================================================================
 # Request/Response Models
@@ -100,6 +115,7 @@ class Recipe(BaseModel):
     ingredients: List[str]
     directions: List[str]
     score: Optional[RecipeScore] = None
+    enhanced: bool = False
 
 
 class GenerationResponse(BaseModel):
@@ -191,11 +207,21 @@ def generate_recipes(items: List[str]):
     recipes_data = result.get("recipes", [])
     scores_data = result.get("scores", [])
 
+    # Step 5.5: Enhance recipes if enabled
+    if enhancer is not None:
+        try:
+            recipes_data = enhancer.enhance_recipes(recipes_data)
+            print("Recipes enhanced successfully")
+        except Exception as e:
+            print(f"Language enhancement failed: {e}")
+            warnings.append(f"Language enhancement failed: {str(e)}")
+
     for i, recipe_dict in enumerate(recipes_data):
         recipe = Recipe(
             title=recipe_dict.get("title", ""),
             ingredients=recipe_dict.get("ingredients", []),
             directions=recipe_dict.get("directions", []),
+            enhanced=recipe_dict.get("enhanced", False),
         )
 
         # Attach score if available

@@ -13,6 +13,8 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PORT=${BACKEND_PORT:-8000}
+      - USE_LANGUAGE_ENHANCEMENT=${USE_LANGUAGE_ENHANCEMENT:-false}
+      - LLAMA_MODEL_NAME=${LLAMA_MODEL_NAME:-TinyLlama/TinyLlama-1.1B-Chat-v1.0}
 
   frontend:
     build:
